@@ -155,7 +155,7 @@ class FeedForward(nn.Module):
 class PostLayerNorm(nn.Module):
     def __init__(self, dim, func) -> None:
         super(PostLayerNorm, self).__init__()
-        self.layernorm = nn.LayerNorm(dim, eps=1e-12)
+        self.layernorm = nn.LayerNorm(dim)
         self.func = func
     
     def forward(self, input, **kwargs) -> Tensor:

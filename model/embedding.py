@@ -47,7 +47,7 @@ class LinformerEmbedding(nn.Module):
                             embed_dim
                         )
         self.sin_pos_embed = SinusoidalPositionEmbedding(max_seq_len, embed_dim)
-        self.layernorm = nn.LayerNorm(embed_dim, eps=1e-12)
+        self.layernorm = nn.LayerNorm(embed_dim)
         self.embed_dropout = nn.Dropout(p=embed_drop_prob)
     
     def forward(self, input: Tensor) -> Tensor:
