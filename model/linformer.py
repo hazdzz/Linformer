@@ -24,10 +24,10 @@ class LinformerMultiHeadSelfAttention(nn.Module):
         self.weight_key = nn.Parameter(torch.empty(feat_dim, feat_dim))
         self.weight_value = nn.Parameter(torch.empty(feat_dim, feat_dim))
         if para_share_schema == 'head':
-            self.proj_weight_e = nn.Parameter(torch.empty(self.seq_len, proj_dim))
-            self.proj_weight_f = nn.Parameter(torch.empty(self.seq_len, proj_dim))
+            self.proj_weight_e = nn.Parameter(torch.empty(self.seq_len, proj_dim), requires_grad=False)
+            self.proj_weight_f = nn.Parameter(torch.empty(self.seq_len, proj_dim), requires_grad=False)
         else:
-            self.proj_weight_kv = nn.Parameter(torch.empty(self.seq_len, proj_dim))
+            self.proj_weight_kv = nn.Parameter(torch.empty(self.seq_len, proj_dim), requires_grad=False)
         self.softmax = nn.Softmax(dim=-1)
     
         self.reset_parameters()
@@ -185,7 +185,7 @@ class Linformer(nn.Module):
                     PostLayerNorm(args.embed_size, FeedForward(args.embed_size, args.hidden_size, args.ffn_drop_prob))
             ]))
         else:
-            self.proj_weight_all = nn.Parameter(torch.empty(args.max_seq_len, args.proj_dim))
+            self.proj_weight_all = nn.Parameter(torch.empty(args.max_seq_len, args.proj_dim), requires_grad=False)
             self.reset_parameters()
 
             for _ in range(args.num_block):
