@@ -6,7 +6,7 @@ from torch import Tensor
 
 
 class LinformerMultiHeadSelfAttention(nn.Module):
-    def __init__(self, batch_size, seq_len, feat_dim, num_head, proj_dim, value_drop_prob, para_share_schema):
+    def __init__(self, batch_size, seq_len, feat_dim, num_head, proj_dim, value_drop_prob, para_share_schema) -> None:
         super(LinformerMultiHeadSelfAttention, self).__init__()
         assert proj_dim <= feat_dim
         assert num_head >= 1
@@ -20,9 +20,9 @@ class LinformerMultiHeadSelfAttention(nn.Module):
         self.proj_dim = proj_dim
         self.para_share_schema = para_share_schema
         self.value_dropout = nn.Dropout(p=value_drop_prob)
-        self.weight_query = nn.Parameter(torch.empty(feat_dim, feat_dim))
-        self.weight_key = nn.Parameter(torch.empty(feat_dim, feat_dim))
-        self.weight_value = nn.Parameter(torch.empty(feat_dim, feat_dim))
+        self.query_linear = nn.Linear(feat_dim, feat_dim, bias=True)
+        self.key_linear = nn.Linear(feat_dim, feat_dim, bias=True)
+        self.value_linear = nn.Linear(feat_dim, feat_dim, bias=True)
         if para_share_schema == 'head':
             self.proj_weight_e = nn.Parameter(torch.empty(self.seq_len, proj_dim), requires_grad=False)
             self.proj_weight_f = nn.Parameter(torch.empty(self.seq_len, proj_dim), requires_grad=False)
@@ -33,9 +33,12 @@ class LinformerMultiHeadSelfAttention(nn.Module):
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        init.xavier_uniform_(self.weight_query, gain=1.0)
-        init.xavier_uniform_(self.weight_key, gain=1.0)
-        init.xavier_uniform_(self.weight_value, gain=1.0)
+        init.xavier_uniform_(self.query_linear.weight, gain=1.0)
+        init.xavier_uniform_(self.key_linear.weight, gain=1.0)
+        init.xavier_uniform_(self.value_linear.weight, gain=1.0)
+        init.zeros_(self.query_linear.bias)
+        init.zeros_(self.key_linear.bias)
+        init.zeros_(self.value_linear.bias)
 
         if self.para_share_schema == 'head':
             init.normal_(self.proj_weight_e, mean=0, std=math.sqrt(1 / self.seq_len))
@@ -50,9 +53,9 @@ class LinformerMultiHeadSelfAttention(nn.Module):
         return input.transpose(1, 2).contiguous().view(self.batch_size, self.seq_len, self.feat_dim)
 
     def forward(self, input: Tensor) -> Tensor:
-        query = torch.einsum('bnd,de->bne', input, self.weight_query)
-        key = torch.einsum('bnd,de->bne', input, self.weight_key)
-        value = torch.einsum('bnd,de->bne', input, self.weight_value)
+        query = self.query_linear(input)
+        key = self.key_linear(input)
+        value = self.value_linear(input)
 
         query_multihead = self.split(query)
         key_multihead = self.split(key)
@@ -77,7 +80,7 @@ class LinformerMultiHeadSelfAttention(nn.Module):
 
 
 class LinformerMultiHeadSelfAttentionProjectLayerwise(nn.Module):
-    def __init__(self, batch_size, seq_len, feat_dim, num_head, proj_dim, value_drop_prob, para_share_schema):
+    def __init__(self, batch_size, seq_len, feat_dim, num_head, proj_dim, value_drop_prob, para_share_schema) -> None:
         super(LinformerMultiHeadSelfAttentionProjectLayerwise, self).__init__()
         assert proj_dim <= feat_dim
         assert num_head >= 1
@@ -91,17 +94,20 @@ class LinformerMultiHeadSelfAttentionProjectLayerwise(nn.Module):
         self.proj_dim = proj_dim
         self.para_share_schema = para_share_schema
         self.value_dropout = nn.Dropout(p=value_drop_prob)
-        self.weight_query = nn.Parameter(torch.empty(feat_dim, feat_dim))
-        self.weight_key = nn.Parameter(torch.empty(feat_dim, feat_dim))
-        self.weight_value = nn.Parameter(torch.empty(feat_dim, feat_dim))
+        self.query_linear = nn.Linear(feat_dim, feat_dim, bias=True)
+        self.key_linear = nn.Linear(feat_dim, feat_dim, bias=True)
+        self.value_linear = nn.Linear(feat_dim, feat_dim, bias=True)
         self.softmax = nn.Softmax(dim=-1)
     
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        init.xavier_uniform_(self.weight_query, gain=1.0)
-        init.xavier_uniform_(self.weight_key, gain=1.0)
-        init.xavier_uniform_(self.weight_value, gain=1.0)
+        init.xavier_uniform_(self.query_linear.weight, gain=1.0)
+        init.xavier_uniform_(self.key_linear.weight, gain=1.0)
+        init.xavier_uniform_(self.value_linear.weight, gain=1.0)
+        init.zeros_(self.query_linear.bias)
+        init.zeros_(self.key_linear.bias)
+        init.zeros_(self.value_linear.bias)
 
     def split(self, input: Tensor) -> Tensor:
         return input.view(self.batch_size, self.seq_len, self.num_head, self.head_dim).transpose(1, 2)
@@ -110,9 +116,9 @@ class LinformerMultiHeadSelfAttentionProjectLayerwise(nn.Module):
         return input.transpose(1, 2).contiguous().view(self.batch_size, self.seq_len, self.feat_dim)
 
     def forward(self, input: Tensor, proj_weight_all: Tensor) -> Tensor:
-        query = torch.einsum('bnd,de->bne', input, self.weight_query)
-        key = torch.einsum('bnd,de->bne', input, self.weight_key)
-        value = torch.einsum('bnd,de->bne', input, self.weight_value)
+        query = self.query_linear(input)
+        key = self.key_linear(input)
+        value = self.value_linear(input)
 
         query_multihead = self.split(query)
         key_multihead = self.split(key)
@@ -128,26 +134,25 @@ class LinformerMultiHeadSelfAttentionProjectLayerwise(nn.Module):
 
         return linformer_multihead_attn_output
 
-class FeedForward(nn.Module):
+
+class FeedForwardNetwork(nn.Module):
     def __init__(self, feat_dim, hid_dim, ffn_drop_prob) -> None:
-        super(FeedForward, self).__init__()
-        self.feat_dim = feat_dim
-        self.linear_layer1 = nn.Linear(in_features=feat_dim, out_features=hid_dim, bias=True)
-        self.linear_layer2 = nn.Linear(in_features=hid_dim, out_features=feat_dim, bias=True)
-        self.gelu = nn.GELU()
-        self.ffn_dropout = nn.Dropout(p=ffn_drop_prob)
+        super(FeedForwardNetwork, self).__init__()
+        self.ffn = nn.Sequential(
+            nn.Linear(in_features=feat_dim, out_features=hid_dim, bias=True),
+            nn.GELU(),
+            nn.Dropout(p=ffn_drop_prob),
+            nn.Linear(in_features=hid_dim, out_features=feat_dim, bias=True)
+        )
 
         self.reset_parameters()
 
     def reset_parameters(self) -> None:
-        init.kaiming_normal_(self.linear_layer1.weight, a=0, mode='fan_in', nonlinearity='relu')
-        init.kaiming_normal_(self.linear_layer2.weight, a=0, mode='fan_in', nonlinearity='relu')
+        init.kaiming_normal_(self.ffn[0].weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
+        init.kaiming_normal_(self.ffn[3].weight, a=0, mode='fan_in', nonlinearity='leaky_relu')
 
     def forward(self, input: Tensor) -> Tensor:
-        input_linear = self.linear_layer1(input)
-        input_linear = self.gelu(input_linear)
-        input_linear = self.ffn_dropout(input_linear)
-        ffn_output = self.linear_layer2(input_linear)
+        ffn_output = self.ffn(input)
 
         return ffn_output
 
@@ -182,7 +187,7 @@ class Linformer(nn.Module):
                                                                                    args.num_head, 
                                                                                    args.value_drop_prob, 
                                                                                    args.para_share_schema)),
-                    PostLayerNorm(args.embed_size, FeedForward(args.embed_size, args.hidden_size, args.ffn_drop_prob))
+                    PostLayerNorm(args.embed_size, FeedForwardNetwork(args.embed_size, args.hidden_size, args.ffn_drop_prob))
             ]))
         else:
             self.proj_weight_all = nn.Parameter(torch.empty(args.max_seq_len, args.proj_dim), requires_grad=False)
@@ -197,7 +202,7 @@ class Linformer(nn.Module):
                                                                                                    args.num_head, 
                                                                                                    args.value_drop_prob, 
                                                                                                    args.para_share_schema)),
-                    PostLayerNorm(args.embed_size, FeedForward(args.embed_size, args.hidden_size, args.ffn_drop_prob))
+                    PostLayerNorm(args.embed_size, FeedForwardNetwork(args.embed_size, args.hidden_size, args.ffn_drop_prob))
             ]))
 
     def reset_parameters(self) -> None:

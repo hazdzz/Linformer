@@ -23,10 +23,10 @@ class SinusoidalPositionEmbedding(nn.Module):
         return self.pe[:, :input.size(1)].to(input.device)
 
 
-class LinformerEmbedding(nn.Module):
+class Embedding(nn.Module):
     def __init__(self, pe_type, pooling_type, vocab_size, max_seq_len, embed_dim, 
                  embed_drop_prob) -> None:
-        super(LinformerEmbedding, self).__init__()
+        super(Embedding, self).__init__()
         assert pe_type in ['nope', 'spe', 'ape']
 
         self.pe_type = pe_type
@@ -42,13 +42,19 @@ class LinformerEmbedding(nn.Module):
                             embed_dim,
                             padding_idx
                         )
-        self.pos_embed = nn.Embedding(
-                            max_seq_len, 
-                            embed_dim
-                        )
-        self.sin_pos_embed = SinusoidalPositionEmbedding(max_seq_len, embed_dim)
-        self.layernorm = nn.LayerNorm(embed_dim)
+        if pe_type == 'ape':
+            self.pos_embed = nn.Embedding(max_seq_len, embed_dim)
+        elif pe_type == 'spe':
+            self.pos_embed = SinusoidalPositionEmbedding(max_seq_len, embed_dim)
+        self.embed_norm = nn.LayerNorm(embed_dim)
         self.embed_dropout = nn.Dropout(p=embed_drop_prob)
+
+        self.reset_parameters()
+
+    def reset_parameters(self) -> None:
+        init.normal_(self.token_embed.weight, mean=0, std=math.sqrt(1 / self.max_seq_len))
+        if self.pe_type == 'ape':
+            init.normal_(self.pos_embed.weight, mean=0, std=math.sqrt(1 / self.max_seq_len))
     
     def forward(self, input: Tensor) -> Tensor:
         token_embed = self.token_embed(input)
@@ -57,7 +63,7 @@ class LinformerEmbedding(nn.Module):
             embed = token_embed
         elif self.pe_type == 'spe':
             # Sinusoidal Positional Encoding
-            pos_embed = self.sin_pos_embed(token_embed)
+            pos_embed = self.pos_embed(token_embed)
             embed = token_embed + pos_embed
         elif self.pe_type == 'ape':
             # Absolute Learnable Position Embedding
@@ -66,9 +72,9 @@ class LinformerEmbedding(nn.Module):
             pos_embed = self.pos_embed(pos_ids)
             embed = token_embed + pos_embed
         else:
-            raise ValueError(f'ERROR: The Position Embedding {self.pe} is not implemented yet.')
+            raise ValueError(f'ERROR: The Position Embedding {self.pe_type} is not implemented yet.')
         
-        embed = self.layernorm(embed)
+        embed = self.embed_norm(embed)
         embed = self.embed_dropout(embed)
 
         return embed
