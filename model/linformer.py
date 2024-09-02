@@ -206,7 +206,8 @@ class Linformer(nn.Module):
             ]))
 
     def reset_parameters(self) -> None:
-        init.normal_(self.proj_weight_all, mean=0, std=math.sqrt(1 / self.seq_len))
+        if self.para_share_schema == 'layer':
+            init.normal_(self.proj_weight_all, mean=0, std=math.sqrt(1 / self.seq_len))
 
     def forward(self, input: Tensor) -> Tensor:
         if self.para_share_schema == 'head' or self.para_share_schema == 'kv':
